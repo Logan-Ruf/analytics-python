@@ -13,12 +13,12 @@ from segment.analytics.utils import remove_trailing_slash
 _session = sessions.Session()
 
 
-def post(write_key, host=None, gzip=False, timeout=15, proxies=None, **kwargs):
+def post(write_key, host=None, endpoint=None, gzip=False, timeout=15, proxies=None, **kwargs):
     """Post the `kwargs` to the API"""
     log = logging.getLogger('segment')
     body = kwargs
     body["sentAt"] = datetime.utcnow().replace(tzinfo=tzutc()).isoformat()
-    url = remove_trailing_slash(host or 'https://api.segment.io') + '/v1/batch'
+    url = remove_trailing_slash(host or 'https://api.segment.io') + (endpoint or '/v1/batch')
     auth = HTTPBasicAuth(write_key, '')
     data = json.dumps(body, cls=DatetimeSerializer)
     log.debug('making request: %s', data)

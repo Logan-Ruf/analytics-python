@@ -12,6 +12,7 @@ def json_hash(str):
     if str:
         return json.loads(str)
 
+
 # analytics -method=<method> -segment-write-key=<segmentWriteKey> [options]
 
 
@@ -28,7 +29,7 @@ parser.add_argument(
 
 parser.add_argument('--event', help='the event name to send with the event')
 parser.add_argument(
-    '--properties', help='the event properties to send (JSON-encoded)')
+    '--properties', help='the event or object properties to send (JSON-encoded)')
 
 parser.add_argument(
     '--name', help='name of the screen or page to send with the message')
@@ -37,6 +38,11 @@ parser.add_argument(
     '--traits', help='the identify/group traits to send (JSON-encoded)')
 
 parser.add_argument('--groupId', help='the group id')
+
+parser.add_argument('--objectId', help='the ID of an Object')
+
+parser.add_argument(
+    '--collection', help='the collection an Object belongs to')
 
 options = parser.parse_args()
 
@@ -70,6 +76,11 @@ def group():
                     json_hash(options.context), anonymous_id=options.anonymousId)
 
 
+# Used plural name because object is a reserved word in Python
+def objects():
+    analytics.object(options.objectId, options.collection, json_hash(options.properties), json_hash(options.context))
+
+
 def unknown():
     print()
 
@@ -88,7 +99,8 @@ switcher = {
     "page": page,
     "screen": screen,
     "identify": identify,
-    "group": group
+    "group": group,
+    "object": objects
 }
 
 func = switcher.get(options.type)

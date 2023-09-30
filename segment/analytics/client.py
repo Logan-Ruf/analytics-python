@@ -21,11 +21,14 @@ class Client(object):
     class DefaultConfig(object):
         write_key = None
         host = None
+        objects_host = 'https://objects.segment.com'
+        objects_endpoint = '/v1/set'
         on_error = None
         debug = False
         send = True
         sync_mode = False
         max_queue_size = 10000
+        max_object_queue_size = 10
         gzip = False
         timeout = 15
         max_retries = 10
@@ -40,8 +43,11 @@ class Client(object):
     def __init__(self,
                  write_key=DefaultConfig.write_key,
                  host=DefaultConfig.host,
+                 objects_host=DefaultConfig.objects_host,
+                 objects_endpoint=DefaultConfig.objects_endpoint,
                  debug=DefaultConfig.debug,
                  max_queue_size=DefaultConfig.max_queue_size,
+                 max_object_queue_size=DefaultConfig.max_object_queue_size,
                  send=DefaultConfig.send,
                  on_error=DefaultConfig.on_error,
                  gzip=DefaultConfig.gzip,
@@ -55,12 +61,15 @@ class Client(object):
         require('write_key', write_key, str)
 
         self.queue = queue.Queue(max_queue_size)
+        self.object_queue = queue.Queue(max_object_queue_size)
         self.write_key = write_key
         self.on_error = on_error
         self.debug = debug
         self.send = send
         self.sync_mode = sync_mode
         self.host = host
+        self.objects_host = objects_host
+        self.objects_endpoint = objects_endpoint
         self.gzip = gzip
         self.timeout = timeout
         self.proxies = proxies
@@ -88,6 +97,14 @@ class Client(object):
                     proxies=proxies,
                 )
                 self.consumers.append(consumer)
+                object_consumer = Consumer(
+                    self.object_queue, write_key, host=objects_host,
+                    endpoint=objects_endpoint, on_error=on_error,
+                    upload_size=upload_size, upload_interval=upload_interval,
+                    gzip=gzip, retries=max_retries, timeout=timeout,
+                    proxies=proxies,
+                )
+                self.consumers.append(object_consumer)
 
                 # if we've disabled sending, just don't start the consumer
                 if send:
@@ -239,6 +256,21 @@ class Client(object):
 
         return self._enqueue(msg)
 
+    def object(self, object_id=None, collection=None, properties=None):
+        properties = properties or {}
+        require('object_id', object_id, ID_TYPES)
+        require('collection', collection, str)
+        require('properties', properties, dict)
+
+        msg = {
+            'objectId': object_id,
+            'collection': collection,
+            'properties': properties,
+            'type': 'object'
+        }
+
+        return self._enqueue(msg)
+
     def _enqueue(self, msg):
         """Push a new `msg` onto the queue, return `(success, msg)`"""
         timestamp = msg['timestamp']
@@ -284,8 +316,12 @@ class Client(object):
 
             return True, msg
 
+        if msg.get('type') == 'object':
+            current_queue = self.object_queue
+        else:
+            current_queue = self.queue
         try:
-            self.queue.put(msg, block=False)
+            current_queue.put(msg, block=False)
             self.log.debug('enqueued %s.', msg['type'])
             return True, msg
         except queue.Full:

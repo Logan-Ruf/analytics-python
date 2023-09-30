@@ -48,6 +48,10 @@ def screen(*args, **kwargs):
     """Send a screen call."""
     return _proxy('screen', *args, **kwargs)
 
+def object(*args, **kwargs):
+    """Send a object call."""
+    return _proxy('object', *args, **kwargs)
+
 
 def flush():
     """Tell the client to flush."""
