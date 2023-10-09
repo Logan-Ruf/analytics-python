@@ -97,14 +97,6 @@ class Client(object):
                     proxies=proxies,
                 )
                 self.consumers.append(consumer)
-                object_consumer = Consumer(
-                    self.object_queue, write_key, host=objects_host,
-                    endpoint=objects_endpoint, on_error=on_error,
-                    upload_size=upload_size, upload_interval=upload_interval,
-                    gzip=gzip, retries=max_retries, timeout=timeout,
-                    proxies=proxies,
-                )
-                self.consumers.append(object_consumer)
 
                 # if we've disabled sending, just don't start the consumer
                 if send:
@@ -273,29 +265,30 @@ class Client(object):
 
     def _enqueue(self, msg):
         """Push a new `msg` onto the queue, return `(success, msg)`"""
-        timestamp = msg['timestamp']
-        if timestamp is None:
-            timestamp = datetime.utcnow().replace(tzinfo=tzutc())
-        message_id = msg.get('messageId')
-        if message_id is None:
-            message_id = uuid4()
+        if msg['type'] != 'object':
+            timestamp = msg['timestamp']
+            if timestamp is None:
+                timestamp = datetime.utcnow().replace(tzinfo=tzutc())
+            message_id = msg.get('messageId')
+            if message_id is None:
+                message_id = uuid4()
 
-        require('integrations', msg['integrations'], dict)
-        require('type', msg['type'], str)
-        require('timestamp', timestamp, datetime)
-        require('context', msg['context'], dict)
+            require('integrations', msg['integrations'], dict)
+            require('type', msg['type'], str)
+            require('timestamp', timestamp, datetime)
+            require('context', msg['context'], dict)
 
-        # add common
-        timestamp = guess_timezone(timestamp)
-        msg['timestamp'] = timestamp.isoformat(timespec='milliseconds')
-        msg['messageId'] = stringify_id(message_id)
-        msg['context']['library'] = {
-            'name': 'analytics-python',
-            'version': VERSION
-        }
+            # add common
+            timestamp = guess_timezone(timestamp)
+            msg['timestamp'] = timestamp.isoformat(timespec='milliseconds')
+            msg['messageId'] = stringify_id(message_id)
+            msg['context']['library'] = {
+                'name': 'analytics-python',
+                'version': VERSION
+            }
 
-        msg['userId'] = stringify_id(msg.get('userId', None))
-        msg['anonymousId'] = stringify_id(msg.get('anonymousId', None))
+            msg['userId'] = stringify_id(msg.get('userId', None))
+            msg['anonymousId'] = stringify_id(msg.get('anonymousId', None))
 
         msg = clean(msg)
         self.log.debug('queueing: %s', msg)
@@ -316,12 +309,8 @@ class Client(object):
 
             return True, msg
 
-        if msg.get('type') == 'object':
-            current_queue = self.object_queue
-        else:
-            current_queue = self.queue
         try:
-            current_queue.put(msg, block=False)
+            self.queue.put(msg, block=False)
             self.log.debug('enqueued %s.', msg['type'])
             return True, msg
         except queue.Full:
@@ -330,9 +319,8 @@ class Client(object):
 
     def flush(self):
         """Forces a flush from the internal queue to the server"""
-        queue = self.queue
-        size = queue.qsize()
-        queue.join()
+        size = self.queue.qsize()
+        self.queue.join()
         # Note that this message may not be precise, because of threading.
         self.log.debug('successfully flushed about %s items.', size)
 
