@@ -17,8 +17,8 @@ def send_post(*args, **kwargs):
     log = logging.getLogger('segment')
     res = _session.post(*args, **kwargs)
 
-    if res.status_code == 200:
-        log.debug('data uploaded successfully')
+    if res.status_code in [200, 201]:
+        log.debug('request sent successfully')
         return res
 
     try:
@@ -34,7 +34,7 @@ def post(write_key, host=None, endpoint=None, gzip=False, timeout=15, proxies=No
     log = logging.getLogger('segment')
     body = kwargs
     body["sentAt"] = datetime.utcnow().replace(tzinfo=tzutc()).isoformat()
-    url = remove_trailing_slash(host or 'https://api.segment.io') + (endpoint or '/v1/batch')
+    url = remove_trailing_slash(host) + endpoint
     auth = HTTPBasicAuth(write_key, '')
     data = json.dumps(body, cls=DatetimeSerializer)
     log.debug('making request: %s', data)
@@ -64,7 +64,7 @@ def post(write_key, host=None, endpoint=None, gzip=False, timeout=15, proxies=No
     return send_post(url, **kwargs)
 
 
-def start_object_session(write_key, timeout=15, proxies=None):
+def start_object_session(url, write_key, timeout=15, proxies=None):
     """Start a new session with Segment's Object API."""
     log = logging.getLogger('segment')
     auth = HTTPBasicAuth(write_key, '')
@@ -82,12 +82,31 @@ def start_object_session(write_key, timeout=15, proxies=None):
     if proxies:
         kwargs['proxies'] = proxies
 
-    res = send_post('https://objects-bulk-api.segmentapis.com/v0/start', auth=auth,
-                    headers=headers, timeout=timeout)
+    res = send_post(url, auth=auth, headers=headers, timeout=timeout)
     data = res.json()
     sync_id = data['sync_id']
     log.debug(f'object session start: {sync_id = }')
     return data['sync_id']
+
+def keep_alive_object_session(url, write_key, sync_id, timeout=15, proxies=None):
+    log = logging.getLogger('segment')
+    auth = HTTPBasicAuth(write_key, '')
+    headers = {
+        'Content-Type': 'application/json',
+        'User-Agent': 'analytics-python/' + VERSION
+    }
+
+    kwargs = {
+        "auth": auth,
+        "headers": headers,
+        "timeout": timeout,
+    }
+
+    if proxies:
+        kwargs['proxies'] = proxies
+
+    send_post(url, auth=auth, headers=headers, timeout=timeout)
+    log.debug(f'object session kept alive: {sync_id = }')
 
 
 def post_object(url, batch, write_key=None, timeout=15, proxies=None):

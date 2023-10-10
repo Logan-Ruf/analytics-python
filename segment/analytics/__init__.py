@@ -15,6 +15,7 @@ max_queue_size = Client.DefaultConfig.max_queue_size
 gzip = Client.DefaultConfig.gzip
 timeout = Client.DefaultConfig.timeout
 max_retries = Client.DefaultConfig.max_retries
+keep_alive = Client.DefaultConfig.keep_alive
 
 default_client = None
 

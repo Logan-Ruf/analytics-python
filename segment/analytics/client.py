@@ -21,8 +21,7 @@ class Client(object):
     class DefaultConfig(object):
         write_key = None
         host = None
-        objects_host = 'https://objects.segment.com'
-        objects_endpoint = '/v1/set'
+        endpoint = None
         on_error = None
         debug = False
         send = True
@@ -36,6 +35,7 @@ class Client(object):
         thread = 1
         upload_interval = 0.5
         upload_size = 100
+        keep_alive = True
 
     """Create a new Segment client."""
     log = logging.getLogger('segment')
@@ -43,8 +43,6 @@ class Client(object):
     def __init__(self,
                  write_key=DefaultConfig.write_key,
                  host=DefaultConfig.host,
-                 objects_host=DefaultConfig.objects_host,
-                 objects_endpoint=DefaultConfig.objects_endpoint,
                  debug=DefaultConfig.debug,
                  max_queue_size=DefaultConfig.max_queue_size,
                  max_object_queue_size=DefaultConfig.max_object_queue_size,
@@ -57,7 +55,8 @@ class Client(object):
                  proxies=DefaultConfig.proxies,
                  thread=DefaultConfig.thread,
                  upload_size=DefaultConfig.upload_size,
-                 upload_interval=DefaultConfig.upload_interval,):
+                 upload_interval=DefaultConfig.upload_interval,
+                 keep_alive=DefaultConfig.keep_alive):
         require('write_key', write_key, str)
 
         self.queue = queue.Queue(max_queue_size)
@@ -68,11 +67,10 @@ class Client(object):
         self.send = send
         self.sync_mode = sync_mode
         self.host = host
-        self.objects_host = objects_host
-        self.objects_endpoint = objects_endpoint
         self.gzip = gzip
         self.timeout = timeout
         self.proxies = proxies
+        self.keep_alive = keep_alive
 
         if debug:
             self.log.setLevel(logging.DEBUG)
@@ -94,7 +92,7 @@ class Client(object):
                     self.queue, write_key, host=host, on_error=on_error,
                     upload_size=upload_size, upload_interval=upload_interval,
                     gzip=gzip, retries=max_retries, timeout=timeout,
-                    proxies=proxies,
+                    proxies=proxies, keep_alive=keep_alive,
                 )
                 self.consumers.append(consumer)
 

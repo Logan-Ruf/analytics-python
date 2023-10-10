@@ -4,9 +4,12 @@ import monotonic
 import backoff
 import json
 
-from segment.analytics.request import post, APIError, DatetimeSerializer, start_object_session, post_object
+from segment.analytics.request import post, APIError, DatetimeSerializer, start_object_session, post_object, \
+    keep_alive_object_session
 
 from queue import Empty
+
+from segment.analytics.utils import remove_trailing_slash
 
 MAX_MSG_SIZE = 32 << 10
 
@@ -21,7 +24,7 @@ class Consumer(Thread):
 
     def __init__(self, queue, write_key, upload_size=100, host=None, endpoint=None,
                  on_error=None, upload_interval=0.5, gzip=False, retries=10,
-                 timeout=15, proxies=None):
+                 timeout=15, proxies=None, keep_alive=True):
         """Create a consumer thread."""
         Thread.__init__(self)
         # Make consumer a daemon thread so that it doesn't block program exit
@@ -29,8 +32,8 @@ class Consumer(Thread):
         self.upload_size = upload_size
         self.upload_interval = upload_interval
         self.write_key = write_key
-        self.host = host
-        self.endpoint = endpoint
+        self.host = host or 'https://api.segment.io'
+        self.endpoint = endpoint or '/v1/batch'
         self.on_error = on_error
         self.queue = queue
         self.gzip = gzip
@@ -43,13 +46,21 @@ class Consumer(Thread):
         self.timeout = timeout
         self.proxies = proxies
         # Object API
-        self.sessionId = None
+        self.object_host = 'https://objects-bulk-api.segmentapis.com'
+        self.object_start_endpoint = '/v0/start'
+        self.object_upload_endpoint = '/v0/upload/{sync_id}'
+        self.object_keep_alive_endpoint = '/v0/keep-alive/{sync_id}'
+        self.session_id = None
+        self.keep_alive = keep_alive
+        self.keep_alive_time = None
+        self.keep_alive_interval = 9.5 * 60  # 9.5 minutes in seconds
 
     def run(self):
         """Runs the consumer."""
         self.log.debug('consumer is running...')
         while self.running:
             self.upload()
+            self.check_keep_alive()
 
         self.log.debug('consumer exited.')
 
@@ -60,12 +71,13 @@ class Consumer(Thread):
     def upload(self):
         """Upload the next batch of items, return whether successful."""
         success = False
-        batch = self.next()
-        if len(batch) == 0:
+        batch, objects = self.next()
+        if len(batch) == 0 and len(objects) == 0:
             return False
 
         try:
             self.request(batch)
+            self.request_object(objects)
             success = True
         except Exception as e:
             self.log.error('error uploading: %s', e)
@@ -100,7 +112,7 @@ class Consumer(Thread):
                     self.log.error(
                         'Item exceeds 32kb limit, dropping. (%s)', str(item))
                     continue
-                if getattr(item, 'type', None) == 'object':
+                if item['type'] == 'object':
                     objects.append(item)
                 else:
                     items.append(item)
@@ -115,22 +127,47 @@ class Consumer(Thread):
             except Exception as e:
                 self.log.exception('Exception: %s', e)
 
-        return items
+        return items, objects
+
+    def check_keep_alive(self):
+        """Check if the object session needs to be kept alive """
+        if not self.keep_alive or self.keep_alive_time is None or self.session_id is None:
+            return
+        now = monotonic.monotonic()
+        elapsed = now - self.keep_alive_time
+        if elapsed >= self.keep_alive_interval:
+            self.log.debug('keep alive interval passed')
+            self.request_keep_alive()
+
+    def request_keep_alive(self):
+        """Keep alive the object session """
+        if self.session_id is None:
+            self.log.error('No object session id found, cannot keep alive session')
+            return
+        url = remove_trailing_slash(self.object_host) + self.object_keep_alive_endpoint.format(sync_id=self.session_id)
+        self._request(keep_alive_object_session, url, self.write_key, self.session_id,
+                      timeout=self.timeout, proxies=self.proxies)
+        self.keep_alive_time = monotonic.monotonic()
 
     def request_object(self, batch):
         """Upload object data to the object API """
+        if len(batch) == 0:
+            return
 
         # TODO add session keep alive logic
-        if self.sessionId is None:
-            self.sessionId = self._request(start_object_session, self.write_key, timeout=self.timeout,
-                                           proxies=self.proxies)
+        if self.session_id is None:
+            url = remove_trailing_slash(self.object_host) + self.object_start_endpoint
+            self.session_id = self._request(start_object_session, url, self.write_key,
+                                            timeout=self.timeout, proxies=self.proxies)
 
-        url = f'https://objects-bulk-api.segmentapis.com/v0/upload/{self.sessionId}'
-
+        url = remove_trailing_slash(self.object_host) + self.object_upload_endpoint.format(sync_id=self.session_id)
         self._request(post_object, url, batch, write_key=self.write_key, timeout=self.timeout, proxies=self.proxies)
+        self.keep_alive_time = monotonic.monotonic()
 
     def request(self, batch):
         """Attempt to upload the batch and retry before raising an error """
+        if len(batch) == 0:
+            return
 
         self._request(post, self.write_key, self.host, endpoint=self.endpoint, gzip=self.gzip,
                       timeout=self.timeout, batch=batch, proxies=self.proxies)
