@@ -45,7 +45,6 @@ class Client(object):
                  host=DefaultConfig.host,
                  debug=DefaultConfig.debug,
                  max_queue_size=DefaultConfig.max_queue_size,
-                 max_object_queue_size=DefaultConfig.max_object_queue_size,
                  send=DefaultConfig.send,
                  on_error=DefaultConfig.on_error,
                  gzip=DefaultConfig.gzip,
@@ -60,7 +59,6 @@ class Client(object):
         require('write_key', write_key, str)
 
         self.queue = queue.Queue(max_queue_size)
-        self.object_queue = queue.Queue(max_object_queue_size)
         self.write_key = write_key
         self.on_error = on_error
         self.debug = debug

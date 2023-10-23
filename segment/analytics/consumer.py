@@ -72,7 +72,8 @@ class Consumer(Thread):
         """Upload the next batch of items, return whether successful."""
         success = False
         batch, objects = self.next()
-        if len(batch) == 0 and len(objects) == 0:
+        total_size = len(batch) + len(objects)
+        if total_size == 0:
             return False
 
         try:
@@ -86,7 +87,7 @@ class Consumer(Thread):
                 self.on_error(e, batch)
         finally:
             # mark items as acknowledged from queue
-            for _ in batch:
+            for _ in range(total_size):
                 self.queue.task_done()
             return success
 
@@ -111,6 +112,7 @@ class Consumer(Thread):
                 if item_size > MAX_MSG_SIZE:
                     self.log.error(
                         'Item exceeds 32kb limit, dropping. (%s)', str(item))
+                    queue.task_done()  # Call task_done() for the dropped item
                     continue
                 if item['type'] == 'object':
                     objects.append(item)
@@ -125,6 +127,7 @@ class Consumer(Thread):
             except Empty:
                 break
             except Exception as e:
+                queue.task_done()  # Call task_done() for items that raise exceptions
                 self.log.exception('Exception: %s', e)
 
         return items, objects
