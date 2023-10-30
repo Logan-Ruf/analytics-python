@@ -251,7 +251,7 @@ class Client(object):
         require('properties', properties, dict)
 
         msg = {
-            'objectId': object_id,
+            'id': object_id,
             'collection': collection,
             'properties': properties,
             'type': 'object'
